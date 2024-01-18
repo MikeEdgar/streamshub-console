@@ -10,7 +10,9 @@ import java.util.Properties;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
 import java.util.concurrent.CompletionStage;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 import java.util.function.Function;
 
 import org.apache.kafka.clients.CommonClientConfigs;
@@ -203,6 +205,21 @@ public class ConsumerUtils {
         }
 
         public ConsumerResponse consume() {
+            try {
+                return ConsumerUtils.this.consume(this, autoClose)
+                        .toCompletableFuture()
+                        .get(15, TimeUnit.SECONDS);
+            } catch (ExecutionException e) {
+                throw new RuntimeException(e.getCause());
+            } catch (TimeoutException e) {
+                throw new RuntimeException(e);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                throw new IllegalStateException("Interrupted");
+            }
+        }
+
+        public CompletionStage<ConsumerResponse> consumeAsync() {
             return ConsumerUtils.this.consume(this, autoClose);
         }
     }
@@ -238,35 +255,37 @@ public class ConsumerUtils {
                 .consumer;
     }
 
-    ConsumerResponse consume(ConsumerRequest consumerRequest, boolean autoClose) {
+    CompletionStage<ConsumerResponse> consume(ConsumerRequest consumerRequest, boolean autoClose) {
         ConsumerResponse response = new ConsumerResponse();
 
-        try (Admin admin = Admin.create(adminConfig)) {
-            CompletionStage<Void> initial;
+        CompletionStage<Void> initial;
 
-            if (consumerRequest.createTopic) {
-                initial = admin.createTopics(consumerRequest.topics)
-                    .all()
-                    .toCompletionStage();
-            } else {
-                initial = CompletableFuture.completedStage(null);
-            }
+        if (consumerRequest.createTopic) {
+            initial = CompletableFuture.supplyAsync(() -> {
+                try (Admin admin = Admin.create(adminConfig)) {
+                    return admin.createTopics(consumerRequest.topics)
+                        .all()
+                        .toCompletionStage();
+                }
+            }).thenCompose(Function.identity());
+        } else {
+            initial = CompletableFuture.completedStage(null);
+        }
 
-            initial
+        try {
+            return initial
                 .thenCompose(nothing -> produceMessages(consumerRequest))
                 .thenRun(() -> consumeMessages(consumerRequest, response))
-                .toCompletableFuture()
-                .get(15, TimeUnit.SECONDS);
+                .thenRun(() -> {
+                    if (autoClose) {
+                        response.close();
+                    }
+                })
+                .thenApply(nothing -> response);
         } catch (Exception e) {
             response.close();
-            throw new RuntimeException(e);
+            return CompletableFuture.failedStage(new RuntimeException(e));
         }
-
-        if (autoClose) {
-            response.close();
-        }
-
-        return response;
     }
 
     CompletionStage<Void> produceMessages(ConsumerRequest consumerRequest) {
