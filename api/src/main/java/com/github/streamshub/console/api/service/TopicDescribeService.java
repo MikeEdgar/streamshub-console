@@ -169,7 +169,9 @@ public class TopicDescribeService {
         }
 
         return adminClient
-            .listTopics(new ListTopicsOptions().listInternal(listInternal))
+            .listTopics(new ListTopicsOptions()
+                    .timeoutMs(20_000)
+                    .listInternal(listInternal))
             .listings()
             .toCompletionStage()
             .thenApplyAsync(topics -> topics.stream()
@@ -330,6 +332,7 @@ public class TopicDescribeService {
         Map<Uuid, Either<Topic, Throwable>> result = new LinkedHashMap<>(topicIds.size());
         TopicCollection request = TopicCollection.ofTopicIds(topicIds);
         DescribeTopicsOptions options = new DescribeTopicsOptions()
+                .timeoutMs(Math.max(10_000, 100 * topicIds.size()))
                 .includeAuthorizedOperations(fields.contains(Topic.Fields.AUTHORIZED_OPERATIONS));
 
         var pendingDescribes = adminClient.describeTopics(request, options)
