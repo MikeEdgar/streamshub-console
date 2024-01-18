@@ -2,6 +2,8 @@ package com.github.streamshub.console.api;
 
 import java.io.StringReader;
 import java.net.URI;
+import java.time.Duration;
+import java.time.Instant;
 import java.util.Collection;
 import java.util.HashMap;
 import java.util.List;
@@ -10,6 +12,7 @@ import java.util.Objects;
 import java.util.UUID;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Function;
+import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 
 import jakarta.inject.Inject;
@@ -27,6 +30,7 @@ import org.apache.kafka.clients.admin.ListConsumerGroupOffsetsResult;
 import org.apache.kafka.clients.admin.ListOffsetsResult;
 import org.apache.kafka.clients.admin.ListOffsetsResult.ListOffsetsResultInfo;
 import org.apache.kafka.clients.admin.OffsetSpec;
+import org.apache.kafka.clients.consumer.Consumer;
 import org.apache.kafka.clients.consumer.OffsetAndMetadata;
 import org.apache.kafka.common.ConsumerGroupState;
 import org.apache.kafka.common.KafkaFuture;
@@ -37,6 +41,7 @@ import org.eclipse.microprofile.config.Config;
 import org.hamcrest.Description;
 import org.hamcrest.Matchers;
 import org.hamcrest.TypeSafeMatcher;
+import org.jboss.logging.Logger;
 import org.json.JSONException;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -74,6 +79,7 @@ import static org.hamcrest.Matchers.everyItem;
 import static org.hamcrest.Matchers.greaterThanOrEqualTo;
 import static org.hamcrest.Matchers.hasEntry;
 import static org.hamcrest.Matchers.hasKey;
+import static org.hamcrest.Matchers.hasSize;
 import static org.hamcrest.Matchers.is;
 import static org.hamcrest.Matchers.matchesPattern;
 import static org.hamcrest.Matchers.notNullValue;
@@ -165,6 +171,47 @@ class ConsumerGroupsResourceIT {
                     hasEntry(is("last"), nullValue())))
             .body("meta.page.total", is(0))
             .body("data.size()", is(0));
+    }
+
+    @Test
+    void testListConsumerGroupsHighVolume() {
+        List<String> groupIds = IntStream.range(0, 100)
+                .mapToObj("grp-%03d-"::formatted)
+                .map(prefix -> prefix + UUID.randomUUID().toString())
+                .sorted()
+                .toList();
+
+        var consumers = groupIds.stream()
+            .map(groupId -> {
+                String topic = "t-" + UUID.randomUUID().toString();
+                String client = "c-" + UUID.randomUUID().toString();
+                return Map.entry(groupId, groupUtils.consume(groupId, topic, client, 6, false));
+            })
+            .collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue));
+
+        try {
+            await()
+                .atMost(90, TimeUnit.SECONDS)
+                .until(() -> consumers.keySet()
+                        .stream()
+                        .allMatch(grpId -> ConsumerGroupState.STABLE == groupUtils.consumerGroupState(grpId)));
+
+            Instant begin = Instant.now();
+
+            whenRequesting(req -> req
+                    .param("fields[consumerGroups]", "state,members,offsets")
+                    .param("page[size]", groupIds.size() + 1)
+                    .get("", clusterId1))
+                .assertThat()
+                .statusCode(is(Status.OK.getStatusCode()))
+                .body("data.size()", is(groupIds.size()))
+                .body("data.attributes.state", everyItem(is("STABLE")))
+                .body("data.attributes.members", everyItem(hasSize(1)));
+
+            Logger.getLogger(getClass()).infof("high volume describeConsumerGroups: %s", Duration.between(begin, Instant.now()));
+        } finally {
+            consumers.values().forEach(Consumer::close);
+        }
     }
 
     @Test
