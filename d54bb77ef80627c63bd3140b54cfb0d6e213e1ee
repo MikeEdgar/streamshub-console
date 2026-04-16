@@ -1,0 +1,1 @@
+{"id":"73e7d1bb-5e60-4bf4-9473-5543ca6fb366","ts":"2026-04-16T15:01:01.920Z","version":"1.0.2","toolName":"apply_diff","taskID":"c1b8d5f8-d369-46a4-bc3f-921c5ae0ca1b","path":"api/src/main/webui/src/components/kafka/overview/ClusterConnectionProvider.tsx","numLinesApplied":1,"currentRange":{"startLine":18,"endLine":18}}
