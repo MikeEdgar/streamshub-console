@@ -1,15 +1,12 @@
 package com.github.streamshub.console.api.security;
 
 import java.net.URI;
-import java.net.URLEncoder;
-import java.nio.charset.StandardCharsets;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 
 import jakarta.inject.Inject;
-import jakarta.inject.Named;
 import jakarta.ws.rs.GET;
 import jakarta.ws.rs.Path;
 import jakarta.ws.rs.QueryParam;
@@ -19,7 +16,6 @@ import jakarta.ws.rs.core.UriInfo;
 
 import org.eclipse.microprofile.jwt.JsonWebToken;
 
-import com.github.streamshub.console.api.support.Holder;
 import com.github.streamshub.console.config.ConsoleConfig;
 
 import io.quarkus.oidc.OidcSession;
@@ -36,10 +32,6 @@ public class SessionResource {
 
     @Inject
     SecurityIdentity identity;
-
-    @Inject
-    @Named("oidcEndSessionEndpoint")
-    Holder<String> endSessionEndpoint;
 
     @Inject
     RedirectUriValidator redirectValidator;
@@ -90,39 +82,6 @@ public class SessionResource {
         properties.put("anonymous", identity.isAnonymous());
 
         return Response.ok(properties).build();
-    }
-
-    @GET
-    @Path("logout")
-    public Response logout(@QueryParam("redirect_uri") String redirectUri, UriInfo uriInfo) {
-        // Validate and sanitize the redirect URI to prevent open redirect vulnerabilities
-        URI safeRedirectUri = safeRedirectUri(redirectUri, uriInfo);
-
-        if (oidcEnabled()) {
-            oidcSession.logout().await().indefinitely();
-        }
-
-        URI logoutUri = endSessionEndpoint
-            .map(endpoint -> {
-                /*
-                 * If the end_session_endpoint is available, redirect to allow the IdP
-                 * to terminate the session fully.
-                 */
-                String redirectEncoded = URLEncoder.encode(
-                        safeRedirectUri.toString(),
-                        StandardCharsets.UTF_8
-                );
-                var builder = UriBuilder.fromUri(endpoint);
-                builder.queryParam("post_logout_redirect_uri", redirectEncoded);
-                // ID token won't be present for service calls, only web-app interactions
-                // where session is maintained via cookie.
-                Optional.ofNullable(oidcSession.getIdToken().getRawToken())
-                    .ifPresent(t -> builder.queryParam("id_token_hint", t));
-                return builder.build();
-            })
-            .orElse(safeRedirectUri);
-
-        return Response.seeOther(logoutUri).build();
     }
 
     private Optional<String> nameClaim(JsonWebToken token) {

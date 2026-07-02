@@ -60,6 +60,7 @@ public class OidcTenantConfigResolver implements TenantConfigResolver {
                     // Do not redirect to the IdP for JavaScript requests. They are identified by
                     // requests from the React UI with header `X-Requested-With: JavaScript`.
                     .javaScriptAutoRedirect(false)
+                    .addOpenidScope(false)
                     .scopes(Optional
                             .ofNullable(oidc.getScopes())
                             .map(scopes -> scopes.split("\\s+"))
@@ -74,6 +75,10 @@ public class OidcTenantConfigResolver implements TenantConfigResolver {
                 .end()
                 .tokenStateManager()
                     .strategy(Strategy.ID_REFRESH_TOKENS)
+                .end()
+                .logout()
+                    .path("/api/session/logout")
+                    .postLogoutPath("/")
                 .end();
 
         trustStores.configureTruststoreFile(oidc, null, builder);

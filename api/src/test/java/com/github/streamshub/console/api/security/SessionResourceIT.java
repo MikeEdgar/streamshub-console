@@ -32,7 +32,6 @@ import static java.util.stream.Collectors.toMap;
 import static org.hamcrest.Matchers.hasEntry;
 import static org.hamcrest.Matchers.hasKey;
 import static org.hamcrest.Matchers.is;
-import static org.hamcrest.Matchers.not;
 import static org.hamcrest.Matchers.startsWith;
 
 @QuarkusTest
@@ -148,29 +147,34 @@ class SessionResourceIT {
 
     @Test
     @Tag(OIDC_TAG)
-    void testLogoutOIDC() {
+    void testLogoutOIDC() throws Exception {
         var authEndpoint = UriBuilder
                 .fromUri(URI.create(config.getValue("console.test.oidc-url", String.class)))
                 .port(8443)
                 .build()
                 .toString();
         var expectedLocation = UriBuilder.fromUri(testUri)
-                .replacePath("/some/path")
+                .replacePath("/")
                 .build()
                 .toString();
 
+        // Perform the full OIDC Authorization Code flow so that Quarkus sets a
+        // session cookie. The RP-initiated logout endpoint only works for
+        // session-authenticated users, not for stateless Bearer token callers.
+        var loginUri = UriBuilder.fromUri(testUri).replacePath("/api/session/login").build();
+        var sessionCookies = tokens.performOidcLogin(loginUri, "alice", "alice-password");
+
         whenRequesting(req -> req
-                .queryParam("redirect_uri", "/some/path")
-                .auth().oauth2(tokens.getToken("alice"))
+                .cookies(sessionCookies)
                 .redirects().follow(false)
                 .get("logout"))
             .assertThat()
-            .statusCode(is(Status.SEE_OTHER.getStatusCode()))
+            .statusCode(is(Status.FOUND.getStatusCode()))
             .header("Location", startsWith(authEndpoint))
             .header("Location", this::queryParams, hasEntry(is("post_logout_redirect_uri"), is(expectedLocation)))
-            // hint is only available when OIDC authorization code flow is used,
-            // not when tokens retrieved directly by the client like is done in this test.
-            .header("Location", this::queryParams, not(hasKey("id_token_hint")));
+            // id_token_hint is included because we used the authorization code flow and
+            // Quarkus holds the id_token server-side in the session.
+            .header("Location", this::queryParams, hasKey("id_token_hint"));
     }
 
     @Test
