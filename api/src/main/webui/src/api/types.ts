@@ -27,6 +27,7 @@ export interface ListResponse<T extends Resource> {
     next?: string;
   };
   data?: T[];
+  included?: Resource[];
   errors?: ErrorObject[];
 }
 
@@ -742,8 +743,7 @@ export interface Authorization {
   permissionType: string;
 }
 
-export interface KafkaUser {
-  id: string;
+export interface KafkaUser extends Resource {
   type: 'kafkaUsers';
   meta?: MetaWithPrivileges;
   attributes: {
@@ -756,7 +756,6 @@ export interface KafkaUser {
       accessControls: Authorization[];
     } | null;
   };
-  relationships?: Record<string, unknown>;
 }
 
 export interface UsersResponse {

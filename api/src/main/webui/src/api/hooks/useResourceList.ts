@@ -39,6 +39,13 @@ export interface ResourceListParams {
   fields?: string;
 
   /**
+   * Related resources to include in the response.
+   * @example
+   * include=connectCluster
+   */
+  include?: string;
+
+  /**
    * Whether the query should be enabled or not.
    * @default true
    */
@@ -111,6 +118,10 @@ export function useResourceList<T extends Resource>(
 
       if (params?.fields) {
         searchParams.set(`fields[${resourceType}]`, params.fields);
+      }
+
+      if (params?.include) {
+        searchParams.set('include', params.include);
       }
 
       const queryString = searchParams.toString();
